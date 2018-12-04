@@ -228,6 +228,8 @@ extern crate combine;
 
 extern crate cesu8;
 
+extern crate dlopen;
+
 mod wrapper {
     mod version;
     pub use self::version::*;

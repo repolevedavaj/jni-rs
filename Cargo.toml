@@ -14,6 +14,7 @@ repository = "https://github.com/jni-rs/jni-rs"
 version = "0.10.2"
 
 [dependencies]
+dlopen = "0.1.5"
 cesu8 = "1.1.0"
 combine = "3.4.1"
 jni-sys = "0.3.0"

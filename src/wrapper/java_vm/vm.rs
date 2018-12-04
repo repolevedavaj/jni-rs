@@ -2,36 +2,46 @@ use JNIEnv;
 use errors::*;
 
 use sys;
-
 use std::ops::Deref;
 use std::ptr;
 
 #[cfg(feature = "invocation")]
 use InitArgs;
 
+use dlopen::symbor::Library;
+
 /// The invocation API.
-pub struct JavaVM(*mut sys::JavaVM);
+pub struct JavaVM(*mut sys::JavaVM, Option<Box<Library>>);
 
 unsafe impl Send for JavaVM {}
+
 unsafe impl Sync for JavaVM {}
 
 impl JavaVM {
     /// Launch a new JavaVM using the provided init args
     #[cfg(feature = "invocation")]
-    pub fn new(args: InitArgs) -> Result<Self> {
+    pub fn new(args: InitArgs, library_path: &str) -> Result<Self> {
         use std::os::raw::c_void;
 
         let mut ptr: *mut sys::JavaVM = ::std::ptr::null_mut();
         let mut env: *mut sys::JNIEnv = ::std::ptr::null_mut();
 
         unsafe {
-            jni_error_code_to_result(sys::JNI_CreateJavaVM(
-                &mut ptr as *mut _,
-                &mut env as *mut *mut sys::JNIEnv as *mut *mut c_void,
-                args.inner_ptr(),
-            ))?;
+            let lib = Box::new(Library::open(library_path).expect("failed to load JVM library"));
 
-            let vm = Self::from_raw(ptr)?;
+            {
+                let JNI_CreateJavaVM = lib
+                    .symbol::<unsafe extern fn(pvm: *mut *mut sys::JavaVM, penv: *mut *mut c_void, args: *mut c_void) -> sys::jint>("JNI_CreateJavaVM")
+                    .expect("failed to load 'JNI_CreateJavaVM' from JVM library");
+
+                jni_error_code_to_result(JNI_CreateJavaVM(
+                    &mut ptr as *mut _,
+                    &mut env as *mut *mut sys::JNIEnv as *mut *mut c_void,
+                    args.inner_ptr(),
+                ))?;
+            }
+
+            let vm = Self::from_raw(ptr, Option::Some(lib))?;
             java_vm_unchecked!(vm.0, DetachCurrentThread);
 
             Ok(vm)
@@ -39,9 +49,9 @@ impl JavaVM {
     }
 
     /// Create a JavaVM from a raw pointer.
-    pub unsafe fn from_raw(ptr: *mut sys::JavaVM) -> Result<Self> {
+    pub unsafe fn from_raw(ptr: *mut sys::JavaVM, lib: Option<Box<Library>>) -> Result<Self> {
         non_null!(ptr, "from_raw ptr argument");
-        Ok(JavaVM(ptr))
+        Ok(JavaVM(ptr, lib))
     }
 
     /// Returns underlying `sys::JavaVM` interface.
